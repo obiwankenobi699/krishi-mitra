@@ -1,0 +1,51 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environments
+.env
+.env.*
+!.env.example
+.venv
+venv/
+env/
+combined.pem
+
+# Docker
+docker-compose.override.yml
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+build/
+next-env.d.ts
+*.tsbuildinfo
+.npm/
+.pnpm-store/
+
+# OS / IDE leftovers
+.DS_Store
+Thumbs.db
+
+# IDE / Editor specific
+.idea/
+.vscode/
+*.swp
+
+# Generated documents and local service state
+.local/
+test_images/
+services/groundtruth_ai/knowledge_documents
+docs/*.aux
+docs/*.log
+docs/*.out
+docs/*.pdf
+.supabase/
+
+# Local scratch and agent tooling
+usable/
+.agents/
+skills-lock.json

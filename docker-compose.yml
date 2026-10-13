@@ -1,0 +1,184 @@
+name: agri-agentic-suite
+
+x-python-service: &python-service
+  restart: unless-stopped
+  init: true
+  env_file:
+    - ./.env
+  networks:
+    - agri_net
+
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+
+services:
+  ollama:
+    <<: *gpu
+    image: ollama/ollama:0.34.2
+    restart: unless-stopped
+    init: true
+    environment:
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_KEEP_ALIVE: 5m
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./scripts/init-ollama.sh:/init-ollama.sh:ro
+    ports:
+      - "127.0.0.1:11434:11434"
+    networks:
+      - agri_net
+    entrypoint: ["/bin/sh", "/init-ollama.sh"]
+    command:
+      - ${LOCAL_LLM_MODEL:-qwen2.5vl:3b}
+      - ${VISION_MODEL:-qwen2.5vl:3b}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - ollama show '${LOCAL_LLM_MODEL:-qwen2.5vl:3b}' >/dev/null && ollama show '${VISION_MODEL:-qwen2.5vl:3b}' >/dev/null
+      interval: 15s
+      timeout: 30s
+      retries: 40
+      start_period: 30s
+
+  platform_api:
+    <<: *python-service
+    build:
+      context: .
+      dockerfile: services/platform_api/Dockerfile
+    environment:
+      GROUNDTRUTH_URL: http://groundtruth_ai:8000
+      YIELDWISE_URL: http://yieldwise:8000
+      FIELDSCOUT_URL: http://fieldscout_ai:8000
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      groundtruth_ai:
+        condition: service_started
+      yieldwise:
+        condition: service_started
+      fieldscout_ai:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+
+  groundtruth_ai:
+    <<: *python-service
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    build:
+      context: .
+      dockerfile: services/groundtruth_ai/Dockerfile
+    volumes:
+      - chroma_db:/chroma_db
+      - ./knowledge_documents:/app/knowledge_documents
+      - huggingface_cache:/shared/hf_cache
+    environment:
+      HF_HOME: ${HF_HOME:-/shared/hf_cache}
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      REQUIRE_GPU: "1"
+    ports:
+      - "127.0.0.1:8001:8000"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  yieldwise:
+    <<: *python-service
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    build:
+      context: .
+      dockerfile: services/yieldwise/Dockerfile
+    volumes:
+      - ./knowledge_documents:/app/knowledge_documents:ro
+      - chroma_db:/chroma_db
+      - huggingface_cache:/shared/hf_cache
+      - yieldwise_models:/models
+    environment:
+      HF_HOME: ${HF_HOME:-/shared/hf_cache}
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+      REQUIRE_GPU: "1"
+    ports:
+      - "127.0.0.1:8002:8000"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - >-
+        if [ "$${TRAIN_PRICE_MODEL_ON_STARTUP:-false}" = "true" ]; then
+          python /app/train_price_estimator.py;
+        fi;
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  fieldscout_ai:
+    <<: *python-service
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    build:
+      context: .
+      dockerfile: services/fieldscout_ai/Dockerfile
+    ports:
+      - "127.0.0.1:8003:8000"
+    depends_on:
+      ollama:
+        condition: service_healthy
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  frontend:
+    restart: unless-stopped
+    init: true
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
+    ports:
+      - "3000:3000"
+    networks:
+      - agri_net
+    depends_on:
+      platform_api:
+        condition: service_healthy
+
+networks:
+  agri_net:
+    driver: bridge
+
+volumes:
+  ollama_data:
+  chroma_db:
+  huggingface_cache:
+  yieldwise_models:

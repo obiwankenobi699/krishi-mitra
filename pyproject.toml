@@ -1,0 +1,58 @@
+[project]
+name = "agri-agentic-suite"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+  # Shared web + data stack (union of all services/* requirements — one root venv)
+  "fastapi",
+  "uvicorn[standard]",
+  "pydantic",
+  "pydantic-settings",
+  "httpx==0.28.1",
+  "python-multipart==0.0.20",
+  "pillow>=11.3,<12",
+  "pandas",
+  "numpy",
+  "requests",
+  "certifi",
+  # AI / RAG / vision
+  "litellm",
+  "openai",
+  "chromadb",
+  "sentence-transformers",
+  "transformers",
+  "langchain",
+  "langchain-community",
+  "pypdf",
+  "ddgs",
+  "cloudscraper",
+  # OCR / speech / audio / geo-docs
+  "pytesseract",
+  "pdf2image",
+  "gTTS",
+  "vosk",
+  "pydub",
+  # Finance / DB
+  "scikit-learn",
+  "sqlalchemy",
+  "psycopg2-binary",
+  # YOLOv11x detector runtime (ONNX; ultralytics stays conversion-only, never shipped)
+  "onnxruntime-gpu",
+]
+
+[dependency-groups]
+dev = [
+  "pytest==8.4.2",
+  "ruff==0.13.3",
+]
+
+[tool.uv]
+package = false
+required-version = "==0.9.15"
+
+[tool.pytest.ini_options]
+testpaths = ["services/platform_api/tests", "services/fieldscout_ai/tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

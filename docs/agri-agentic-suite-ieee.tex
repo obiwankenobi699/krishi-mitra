@@ -1,0 +1,129 @@
+\documentclass[10pt,journal]{IEEEtran}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{microtype}
+
+\title{Agraya: A Secure Agentic Platform for Farmer Decision Support}
+\author{Agri-Agentic Suite Contributors}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Agraya is an end-to-end agricultural platform that combines a farmer marketplace,
+crop and field image analysis, grounded advisory services, farm planning, curated
+news, and Telegram access. A Next.js application presents one coherent workflow,
+while a FastAPI gateway protects and coordinates specialized local-AI services.
+Supabase supplies Google authentication, PostgreSQL, object storage, and row-level
+security. Ollama keeps language and vision inference deployable on farmer-focused
+infrastructure without depending on a paid model API.
+\end{abstract}
+
+\section{System Architecture}
+The browser communicates only with the platform API and Supabase. Supabase access
+tokens authenticate private API operations; ownership is also enforced in
+PostgreSQL through row-level security (RLS). The platform API validates requests,
+stores domain records, handles uploads, ingests news, receives Telegram webhooks,
+and forwards AI work over a private Docker network. Specialized services remain
+independently replaceable: GroundTruth performs retrieval-augmented question
+answering, YieldWise produces financial plans, and FieldScout runs multimodal crop
+diagnosis through Ollama.
+
+\begin{table}[h]
+\caption{Primary Components}
+\centering
+\begin{tabular}{p{0.25\linewidth}p{0.67\linewidth}}
+\toprule
+Component & Responsibility \\
+\midrule
+Next.js UI & Public product pages and authenticated farmer workflows. \\
+Platform API & Authentication, validation, persistence, orchestration, and integrations. \\
+AI services & RAG advice, farm finance, vision diagnosis, and speech responses. \\
+Supabase & Google Auth, PostgreSQL, Storage, RLS, and migration-managed schema. \\
+Ollama & Local text and vision model runtime. \\
+Telegram & Image intake and delivery of diagnosis results. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Deployment is container-first. Docker Compose starts the web app, gateway, three
+AI services, and Ollama. Persistent volumes retain models, embeddings, and trained
+artifacts. Root-level pnpm commands and path-safe scripts provide the same entry
+point on Linux, macOS, and Windows Docker Desktop.
+
+\newpage
+\section{Use Cases and Feature Set}
+The principal actor is a farmer who signs in with Google, records one or more
+farms, publishes produce, requests advice, and reviews saved diagnoses. Buyers may
+browse active listings without authentication and contact sellers. Administrators
+can refresh trusted news feeds, while a linked Telegram account gives the farmer a
+low-friction mobile capture channel.
+
+\begin{table}[h]
+\caption{End-to-End User Flows}
+\centering
+\begin{tabular}{p{0.27\linewidth}p{0.64\linewidth}}
+\toprule
+Flow & System behavior \\
+\midrule
+Marketplace & Validate produce data, upload an image, publish a listing, then expose active inventory publicly. \\
+Crop doctor & Accept JPEG, PNG, or WebP; select disease, crop, or field mode; call FieldScout; persist structured findings. \\
+Advisor & Answer agricultural questions from local documents, accept voice, or create a farm financial plan. \\
+News hub & Normalize configured RSS/Atom sources, de-duplicate articles, and serve a current public feed. \\
+Telegram & Link a chat using a short-lived token, process a photo, store the diagnosis, and reply in the chat. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+FieldScout returns a condition, confidence, severity, observations, causes,
+recommended actions, and safety notes rather than unstructured prose alone. The
+same analysis modes are shared by web and Telegram entry points. Marketplace,
+farm, diagnosis, and Telegram records are owner-scoped. News and active listings
+are intentionally public. The user interface exposes dedicated routes for the
+marketplace, crop doctor, advisor, farms, news, diagnoses, Telegram integration,
+and login, with a long-form product home page connecting these capabilities.
+
+The first production iteration deliberately favors modular service boundaries.
+Additional agents can be introduced behind the platform API without exposing new
+internal ports or changing the browser's trust model. Likely extensions include
+weather alerts, localized crop calendars, multilingual output, buyer messaging,
+price notifications, and human agronomist escalation.
+
+\newpage
+\section{Security, Reliability, and Operation}
+Security is layered. Supabase validates Google identities, and the API verifies
+their bearer tokens before private operations. RLS uses \texttt{auth.uid()} for
+record ownership; user-editable metadata is not used for authorization. Public
+clients receive only the Supabase publishable key. The Supabase secret key,
+database URL, Telegram token, webhook secret, and internal API key remain
+server-only. Internal AI endpoints require a shared header and are not intended
+for browser use.
+
+Uploads have bounded sizes and permitted MIME types. Filenames are generated by
+the server, temporary audio files are cleaned up, external requests use timeouts,
+and SQL access is parameterized. CORS is restricted to configured origins.
+Container health checks and restart policies support recovery, while Ollama and
+embedding volumes avoid repeated downloads. Telegram update identifiers are
+stored to prevent duplicate processing. A production deployment should add a
+durable job queue for webhook work, centralized telemetry, rate limiting, backups,
+and periodic Supabase security and performance advisor reviews.
+
+\section{Data and Development Lifecycle}
+The migration defines profiles, farms, listings, diagnoses, news, Telegram links,
+commodity prices, indexes, storage buckets, grants, and RLS policies. It should be
+reviewed and applied from a controlled branch before production. Developers copy
+\texttt{.env.example} to \texttt{.env}, install pinned JavaScript dependencies
+with pnpm, and launch the complete system with \texttt{pnpm run dev}. Python
+dependencies are locked for uv-based development and container builds.
+
+\section{Conclusion}
+Agraya turns previously separate agricultural prototypes into one secure product
+surface. Its gateway-centered architecture, owner-scoped data model, local model
+runtime, and web/Telegram parity provide a practical base for field pilots while
+preserving clear paths toward scale and human-in-the-loop support.
+
+\begin{thebibliography}{1}
+\bibitem{supabase} Supabase, ``Platform Documentation,'' 2026. [Online]. Available: \url{https://supabase.com/docs}
+\bibitem{ollama} Ollama, ``Ollama Documentation,'' 2026. [Online]. Available: \url{https://docs.ollama.com}
+\end{thebibliography}
+\end{document}
