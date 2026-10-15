@@ -388,6 +388,9 @@ class VisionService:
     @staticmethod
     def _vlm_available() -> bool:
         """Cheap Ollama probe: is VISION_MODEL currently loaded? 3s timeout."""
+        # `local:` prefix = detector-only by design (never pull from Ollama).
+        if str(settings.VISION_MODEL).startswith("local:"):
+            return False
         try:
             import httpx
 
@@ -452,6 +455,42 @@ class VisionService:
             + (f" ({crop})" if crop else "")
             + f", confidence {round(conf * 100)}%. LLM enrichment pending.",
             stage1_model=STAGE1_MODEL_NAME_TF,
+        )
+
+    @classmethod
+    def _unrecognized_result(cls, analysis_mode: AnalysisMode) -> VisionAnalysis:
+        """Honest fallback when the local detector finds nothing confidently.
+
+        Local-only mode (VISION_MODEL=local:...) has no VLM to describe
+        ambiguous frames, so return Unknown + needs_expert_review instead
+        of 503. The frontend renders this as "Needs review", never the
+        "service unavailable" error card.
+        """
+        return VisionAnalysis(
+            analysis_mode=analysis_mode,
+            crop=None,
+            condition="Unknown",
+            confidence=0.0,
+            severity=Severity.unknown,
+            severity_score=0.0,
+            observations=[
+                "Local detector found no confident disease match in this photo.",
+                "The leaf may be healthy, early-stage, or need a closer shot.",
+            ],
+            recommended_actions=[
+                "Re-photograph the affected leaf close-up in natural daylight.",
+                "Add a second angle plus one wider field view.",
+                "Have a local agronomist confirm before spraying or fertilizing.",
+            ],
+            regions=[
+                RegionOfInterest(
+                    x=0.1, y=0.1, width=0.8, height=0.8,
+                    label="Unknown", confidence=0.0,
+                )
+            ],
+            needs_expert_review=True,
+            summary="No confident match — needs review with a clearer photo.",
+            stage1_model="plantvillage-yolo11x-onnx",
         )
 
     @classmethod
@@ -535,6 +574,10 @@ class VisionService:
                 logger.info("stage-2: VLM %s not in Ollama; returning classifier-first result",
                             settings.VISION_MODEL)
                 return self._classifier_first_result(stage1, analysis_mode)
+            if str(settings.VISION_MODEL).startswith("local:"):
+                logger.info("stage-2: local-only %s, no detections; returning needs-review result",
+                            settings.VISION_MODEL)
+                return self._unrecognized_result(analysis_mode)
 
         # Stage 2: Ollama VLM description + region proposals.
         # Model tag comes from settings (VISION_MODEL) — never hardcoded.
@@ -598,9 +641,17 @@ Do not include Markdown fences."""
         except HTTPException:
             raise
         except Exception as exc:
+            if detections:
+                logger.warning("stage-2: VLM request failed; returning detector-first result")
+                return self._detector_first_result(detections, analysis_mode)
             if stage1:
                 logger.warning("stage-2: VLM request failed; returning classifier-first result")
                 return self._classifier_first_result(stage1, analysis_mode)
+            if str(settings.VISION_MODEL).startswith("local:"):
+                # Detector ran but found nothing confidently — honest
+                # needs-review, not 503 (frontend shows result panel).
+                logger.warning("stage-2: local-only, VLM failed; returning needs-review result")
+                return self._unrecognized_result(analysis_mode)
             logger.exception("Vision model request failed")
             if not stage1:
                 # Neither local weights nor VLM available — say exactly why.

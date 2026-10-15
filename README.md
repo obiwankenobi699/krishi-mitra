@@ -29,7 +29,7 @@ with Supabase cloud for data.
 - **Data:** Supabase (Postgres + Auth + Storage, RLS on everything)
 - **Tooling:** mise (pinned Node/pnpm/Python/uv), pnpm, uv, Ollama native
 
-## Start locally (no Docker needed)
+## Start locally (native, no Docker)
 
 ```bash
 cp .env.example .env   # fill Supabase URL + keys (see Supabase setup)
@@ -87,7 +87,6 @@ Copy `.env.example` to `.env`. Required: `SUPABASE_URL`,
 ```bash
 pnpm run lint / typecheck / build   # frontend gates
 pnpm run test / python:check        # pytest + ruff
-pnpm run dev:docker                 # deploy-parity compose stack (optional)
 ```
 
 ## License
