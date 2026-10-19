@@ -1,19 +1,14 @@
-import Image, { type StaticImageData } from 'next/image';
+import Image from 'next/image';
 import Link from 'next/link';
 import type * as React from 'react';
 import AuthActionLink from '@/components/AuthActionLink';
 import Reveal from '@/components/Reveal';
-import harvestImage from '../../usable/40f3289f6c05d5966852e16dc9b9ad4e.jpg';
-import fieldMapImage from '../../usable/492b0d081155c1dab62dfac1247c6455.jpg';
-import smartFieldImage from '../../usable/4dc7373e5699942d234c8d4a4843bf10.jpg';
-import terracesImage from '../../usable/photo-1678483873833-ddce9d2ddff6.avif';
-import rowsImage from '../../usable/premium_photo-1674624682288-085eff4f98da.avif';
 
-interface Feature { number: string; title: string; description: string; href: string; image: StaticImageData | string; className: string; }
+interface Feature { number: string; title: string; description: string; href: string; image: string; className: string; }
 
 const features: Feature[] = [
   { number: '01', title: 'Diagnose a crop', description: 'Photograph a leaf and get a clear, practical health assessment.', href: '/crop-doctor', image: '/images/leaf-macro.jpg', className: 'km-feature-tall' },
-  { number: '02', title: 'Read the whole field', description: 'Understand visible stress, crop cover, moisture patterns, and field variation.', href: '/field-analysis', image: smartFieldImage, className: 'km-feature-wide' },
+  { number: '02', title: 'Read the whole field', description: 'Understand visible stress, crop cover, moisture patterns, and field variation.', href: '/field-analysis', image: '/images/drone-crop-rows.jpg', className: 'km-feature-wide' },
   { number: '03', title: 'Sell the harvest', description: 'Publish produce and connect directly with nearby buyers.', href: '/marketplace', image: '/images/mandi-vegetables.jpg', className: 'km-feature-small' },
   { number: '04', title: 'Plan the next move', description: 'Ask for crop, scheme, cost, and season guidance in plain language.', href: '/advisor', image: '/images/farmer-phone-field.jpg', className: 'km-feature-small' },
 ];
@@ -39,7 +34,7 @@ export default function Home(): React.JSX.Element {
     <main className="km-home">
       <section className="km-hero" aria-labelledby="home-title">
         <div className="km-hero-visual">
-          <Image src={harvestImage} alt="Aerial view of a tractor moving through precise crop rows" fill priority quality={92} sizes="(max-width: 900px) 100vw, 58vw" />
+          <Image src="/images/tractor-golden-hour.jpg" alt="A tractor moving through a field at golden hour" fill priority quality={92} sizes="(max-width: 900px) 100vw, 58vw" />
           <div className="km-hero-shade" />
           <p className="km-overline km-overline-light">LOCAL INTELLIGENCE · EVERYDAY FARMING</p>
           <div className="km-hero-title-wrap km-title-enter">
@@ -50,7 +45,7 @@ export default function Home(): React.JSX.Element {
         </div>
         <div className="km-hero-story">
           <div className="km-title-enter km-title-enter-late"><p className="km-overline">MEET KRISHI MITRA</p><h2>One calm place for every decision from soil to sale.</h2></div>
-          <div className="km-story-image"><Image src={terracesImage} alt="Farmer walking through green terraced fields" fill sizes="(max-width: 900px) 100vw, 32vw" /><span>Built around your land</span></div>
+          <div className="km-story-image"><Image src="/images/india-terraced-fields.jpg" alt="Green terraced fields in India" fill sizes="(max-width: 900px) 100vw, 32vw" /><span>Built around your land</span></div>
           <p className="km-story-copy">Krishi Mitra brings crop diagnosis, field analysis, trusted advice, local news, and a farmer-first marketplace into one connected workspace.</p>
           <div className="km-hero-actions"><AuthActionLink className="km-button km-button-dark" signedInLabel="Open my farm" signedOutLabel="Start with Google" /><Link href="#services" className="km-text-link">Explore the platform ↓</Link></div>
         </div>
@@ -70,7 +65,7 @@ export default function Home(): React.JSX.Element {
       </section>
 
       <section className="km-section km-field-story" aria-labelledby="field-title">
-        <div className="km-field-image"><Image src={fieldMapImage} alt="Field health map showing crop variation" fill sizes="(max-width: 900px) 100vw, 54vw" /><div className="km-field-label"><span>FIELD PULSE</span><strong>See variation early.</strong></div></div>
+        <div className="km-field-image"><Image src="/images/drone-crop-rows.jpg" alt="Aerial view of crop rows showing field variation" fill sizes="(max-width: 900px) 100vw, 54vw" /><div className="km-field-label"><span>FIELD PULSE</span><strong>See variation early.</strong></div></div>
         <Reveal className="km-field-copy"><p className="km-overline">FROM A PHOTO TO A PLAN</p><h2 id="field-title">Look closer.<br />Act sooner.</h2><p>Capture what you see in the field. Krishi Mitra turns images and farm context into a structured analysis you can understand and revisit.</p><dl><div><dt>01</dt><dd>Crop and disease signals</dd></div><div><dt>02</dt><dd>Field condition summary</dd></div><div><dt>03</dt><dd>Practical next actions</dd></div></dl><Link href="/field-analysis" className="km-button km-button-outline">Analyse a field <span>↗</span></Link></Reveal>
       </section>
 
@@ -84,7 +79,7 @@ export default function Home(): React.JSX.Element {
       <section className="km-section km-daily" aria-labelledby="daily-title">
         <Reveal className="km-section-heading"><div><p className="km-overline">USEFUL, EVEN ON A BUSY DAY</p><h2 id="daily-title">Small tools.<br />Fewer loose ends.</h2></div><p>Designed for quick checks at home, in the field, or from Telegram—without turning farming into software administration.</p></Reveal>
         <div className="km-daily-layout">
-          <div className="km-daily-gallery"><div className="km-daily-image"><Image src={rowsImage} alt="Healthy crop rows leading toward green hills" fill sizes="(max-width: 900px) 100vw, 42vw" /><span>One season of context, kept together</span></div></div>
+          <div className="km-daily-gallery"><div className="km-daily-image"><Image src="/images/farm-rows.jpg" alt="Healthy crop rows across a green field" fill sizes="(max-width: 900px) 100vw, 42vw" /><span>One season of context, kept together</span></div></div>
           <div className="km-tool-list">{dailyTools.map((tool) => <Link href={tool.href} key={tool.title} className="km-tool"><b>{tool.icon}</b><div><h3>{tool.title}</h3><p>{tool.text}</p></div><span>↗</span></Link>)}</div>
         </div>
       </section>
