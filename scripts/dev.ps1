@@ -1,4 +1,4 @@
-# Native dev runner for Windows (no Docker). Ollama runs natively, DB is Supabase cloud.
+﻿# Native dev runner for Windows (no Docker). Ollama runs natively, DB is Supabase cloud.
 # Run:  pnpm run dev:windows
 # Ports: web 3000, platform_api 8000, groundtruth 8001, yieldwise 8002, fieldscout 8003.
 $ErrorActionPreference = "Stop"
@@ -7,6 +7,18 @@ Set-Location $ROOT
 
 # mise shims first so node/pnpm/python/uv resolve to pinned versions
 $env:PATH = "$env:USERPROFILE\.local\share\mise\shims;" + $env:PATH
+
+# Ollama can be installed per-user without its folder being on this PowerShell
+# process's inherited PATH. Resolve the CLI explicitly for start/pull commands.
+$ollamaExe = (Get-Command ollama -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Source)
+if (-not $ollamaExe) {
+  $ollamaCandidates = @(
+    (Join-Path $env:LOCALAPPDATA "Programs\Ollama\ollama.exe"),
+    (Join-Path $env:USERPROFILE "AppData\Local\Programs\Ollama\ollama.exe"),
+    (Join-Path $env:ProgramFiles "Ollama\ollama.exe")
+  )
+  $ollamaExe = $ollamaCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+}
 
 if (-not (Test-Path ".env")) { Write-Host "Missing .env - run: pnpm run setup:windows" -ForegroundColor Red; exit 1 }
 if (-not (Test-Path ".venv/Scripts/python.exe")) { Write-Host ".venv missing - run: pnpm run setup:windows" -ForegroundColor Red; exit 1 }
@@ -37,20 +49,10 @@ $env:VOSK_MODEL_PATH = "$ROOT/.local/vosk-model"
 $env:REQUIRE_GPU = "1"
 if (-not $env:NEXT_PUBLIC_API_URL) { $env:NEXT_PUBLIC_API_URL = "http://localhost:8000" }
 
-# Native HF cache: .env may point at Docker's /shared/hf_cache (not usable natively)
-$hfDir = $env:HF_HOME
-if (-not $hfDir) { $hfDir = "$env:USERPROFILE/.cache/huggingface" }
-$hfUsable = $true
-try {
-  New-Item -ItemType Directory -Force -Path $hfDir | Out-Null
-  $probe = Join-Path $hfDir ".writetest"
-  Set-Content -Path $probe -Value "ok" -ErrorAction Stop
-  Remove-Item $probe -ErrorAction SilentlyContinue
-} catch { $hfUsable = $false }
-if (-not $hfUsable) {
-  $hfDir = "$ROOT/.local/hf_cache"
-  New-Item -ItemType Directory -Force -Path $hfDir | Out-Null
-}
+# Native HF cache: .env may point at Docker's /shared/hf_cache, so use a
+# project-local cache that is writable and consistent for this Windows runner.
+$hfDir = "$ROOT/.local/hf_cache"
+New-Item -ItemType Directory -Force -Path $hfDir | Out-Null
 $env:HF_HOME = $hfDir
 
 # Venv CUDA/cuDNN DLLs for TensorFlow GPU discovery (passed into jobs below)
@@ -76,7 +78,7 @@ foreach ($p in @(3000, 8000, 8001, 8002, 8003)) {
 # :11434 is shared with a natively-running ollama — only a conflict if it isn't ollama
 if (Test-PortInUse 11434) {
   $ollamaThere = $false
-  try { Invoke-WebRequest -Uri "$env:OLLAMA_API_BASE_URL/api/tags" -TimeoutSec 2 -UseBasicParsing | Out-Null; $ollamaThere = $true }
+  try { Invoke-WebRequest -Uri "$env:OLLAMA_API_BASE_URL/api/tags" -TimeoutSec 5 -UseBasicParsing | Out-Null; $ollamaThere = $true }
   catch {}
   if (-not $ollamaThere) { $taken += 11434 }
 }
@@ -104,11 +106,15 @@ if ($VRAM_MB -ge 6000) {
   Write-Host "==> GPU tier: efficient (${VRAM_MB}MB VRAM — YOLO on CPU, sequential LLM)"
 }
 $ollamaUp = $false
-try { Invoke-WebRequest -Uri "$env:OLLAMA_API_BASE_URL/api/tags" -TimeoutSec 3 -UseBasicParsing | Out-Null; $ollamaUp = $true }
+try { Invoke-WebRequest -Uri "$env:OLLAMA_API_BASE_URL/api/tags" -TimeoutSec 5 -UseBasicParsing | Out-Null; $ollamaUp = $true }
 catch {}
 if (-not $ollamaUp) {
+  if (-not $ollamaExe) {
+    Write-Host "Ollama server is not responding and ollama.exe was not found on PATH or in $env:LOCALAPPDATA\Programs\Ollama." -ForegroundColor Red
+    exit 1
+  }
   Write-Host "==> Starting ollama serve (native)"
-  Start-Process -FilePath "ollama" -ArgumentList "serve" -WindowStyle Hidden
+  Start-Process -FilePath $ollamaExe -ArgumentList "serve" -WindowStyle Hidden
   for ($i = 0; $i -lt 20; $i++) {
     Start-Sleep 2
     try { Invoke-WebRequest -Uri "$env:OLLAMA_API_BASE_URL/api/tags" -TimeoutSec 2 -UseBasicParsing | Out-Null; $ollamaUp = $true; break }
@@ -125,10 +131,16 @@ foreach ($line in (Get-Content ".env")) {
   if ($line -match "^LOCAL_LLM_MODEL=(.+)$") { $llm = $Matches[1].Trim().Trim('"').Trim("'") }
   if ($line -match "^VISION_MODEL=(.+)$") { $vis = $Matches[1].Trim().Trim('"').Trim("'") }
 }
-$listed = (ollama list) -join "`n"
+$ollamaTags = Invoke-RestMethod -Uri "$env:OLLAMA_API_BASE_URL/api/tags" -TimeoutSec 10
+$listed = (($ollamaTags.models | ForEach-Object { $_.name }) -join "`n")
 foreach ($model in @($llm, $vis)) {
   if ($model -like "local:*" -or $model -eq "") { Write-Host "==> $model is local — skipping Ollama pull"; continue }
-  if (-not $listed.Contains($model)) { Write-Host "==> ollama pull $model"; ollama pull $model }
+  if (-not $listed.Contains($model)) {
+    if (-not $ollamaExe) { throw "Ollama model '$model' is missing and ollama.exe was not found on PATH or in $env:LOCALAPPDATA\Programs\Ollama." }
+    Write-Host "==> ollama pull $model"
+    & $ollamaExe pull $model
+    if ($LASTEXITCODE -ne 0) { throw "ollama pull $model failed with exit code $LASTEXITCODE" }
+  }
 }
 Write-Host "==> Ollama OK ($env:OLLAMA_API_BASE_URL)"
 
@@ -141,10 +153,16 @@ if (Test-Path "knowledge_documents/metadata.json") {
   Pop-Location
 }
 
-function Wait-Port($port, $path = "/") {
+function Wait-Port($port) {
   for ($i = 0; $i -lt 30; $i++) {
-    try { Invoke-WebRequest -Uri "http://localhost:$port$path" -TimeoutSec 2 -UseBasicParsing | Out-Null; return $true }
-    catch { Start-Sleep 2 }
+    $client = New-Object System.Net.Sockets.TcpClient
+    $connected = $false
+    try {
+      $connect = $client.BeginConnect("127.0.0.1", $port, $null, $null)
+      $connected = $connect.AsyncWaitHandle.WaitOne(500) -and $client.Connected
+    } catch {} finally { $client.Close() }
+    if ($connected) { return $true }
+    Start-Sleep 2
   }
   return $false
 }
@@ -168,6 +186,12 @@ function Start-Svc($name, $dir, $port) {
         if ($k -ne "") { Set-Item -Path ("env:" + $k) -Value $v }
       }
     }
+    # Prefer the downloaded Windows-local embedding snapshot when present;
+    # the .env default is a model ID that would otherwise require Hub access.
+    $embeddingModel = Join-Path $root ".local/models/embedding/paraphrase-MiniLM-L3-v2"
+    if (Test-Path (Join-Path $embeddingModel "config.json")) {
+      Set-Item -Path "env:EMBEDDING_MODEL_NAME" -Value $embeddingModel
+    }
     # Native overrides last - .env carries Docker's service hostnames for compose.
     Set-Item -Path "env:PYTHONPATH" -Value $pyPath
     Set-Item -Path "env:OLLAMA_API_BASE_URL" -Value $ollamaUrl
@@ -182,17 +206,33 @@ function Start-Svc($name, $dir, $port) {
     Set-Item -Path "env:HF_HOME" -Value $hfHome
     Set-Item -Path "env:YOLO_PROVIDERS" -Value $yoloProv
     Set-Item -Path "env:OLLAMA_NUM_PARALLEL" -Value $ollamaParallel
+    # Service startup logs include Unicode symbols; force UTF-8 under Windows PowerShell.
+    Set-Item -Path "env:PYTHONIOENCODING" -Value "utf-8"
     if ($cudaPath -ne "") { $env:PATH = ($cudaPath + ";" + $env:PATH) }
     Set-Location (Join-Path $root ("services/" + $dir))
     & $py -m uvicorn app.main:app --host 127.0.0.1 --port $port
-  } -ArgumentList @($py, $dir, $port, $ROOT, $env:PYTHONPATH, $env:OLLAMA_API_BASE_URL, $env:GROUNDTRUTH_URL, $env:YIELDWISE_URL, $env:FIELDSCOUT_URL, $env:CHROMA_DB_PATH, $env:MODEL_DIR, $env:KNOWLEDGE_DOCS_DIR, $env:VOSK_MODEL_PATH, $env:REQUIRE_GPU, $env:HF_HOME, $env:YOLO_PROVIDERS, $env:OLLAMA_NUM_PARALLEL)
+  } -ArgumentList @($py, $dir, $port, $ROOT, $env:PYTHONPATH, $env:OLLAMA_API_BASE_URL, $env:GROUNDTRUTH_URL, $env:YIELDWISE_URL, $env:FIELDSCOUT_URL, $env:CHROMA_DB_PATH, $env:MODEL_DIR, $env:KNOWLEDGE_DOCS_DIR, $env:VOSK_MODEL_PATH, $env:REQUIRE_GPU, $env:HF_HOME, $cudaPath, $env:YOLO_PROVIDERS, $env:OLLAMA_NUM_PARALLEL)
   $script:jobs += $job
 }
 
 function Stop-All($webProc) {
   $script:jobs | Stop-Job -ErrorAction SilentlyContinue
   $script:jobs | Remove-Job -ErrorAction SilentlyContinue
-  if ($webProc -and -not $webProc.HasExited) { Stop-Process -Id $webProc.Id -ErrorAction SilentlyContinue }
+  if ($webProc -and -not $webProc.HasExited) {
+    & taskkill.exe /PID $webProc.Id /T /F 2>$null | Out-Null
+  }
+}
+
+function Show-JobOutput($job) {
+  if (-not $job) { return }
+  $previousErrorAction = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  try {
+    $output = Receive-Job -Job $job -Keep -ErrorAction Continue 2>&1
+    foreach ($item in $output) { Write-Host $item.ToString() }
+  } finally {
+    $ErrorActionPreference = $previousErrorAction
+  }
 }
 
 Start-Svc "groundtruth" "groundtruth_ai" 8001
@@ -203,20 +243,24 @@ $bootFailed = $false
 foreach ($svc in @("groundtruth:8001", "yieldwise:8002", "fieldscout:8003")) {
   $parts = $svc.Split(":")
   if (-not (Wait-Port $parts[1])) {
-    Write-Host ($parts[0] + " failed to start - see 'Receive-Job " + $parts[0] + "' output") -ForegroundColor Red
+    Write-Host ($parts[0] + " failed to start; service output follows:") -ForegroundColor Red
+    $svcJob = Get-Job -Name $parts[0] -ErrorAction SilentlyContinue
+    Show-JobOutput $svcJob
     $bootFailed = $true
   }
 }
 if ($bootFailed) { Stop-All $null; exit 1 }
 Start-Svc "platform" "platform_api" 8000
 Write-Host "==> Waiting for gateway :8000"
-if (-not (Wait-Port 8000 "/health")) {
-  Write-Host "platform failed to start - see 'Receive-Job platform' output" -ForegroundColor Red
+if (-not (Wait-Port 8000)) {
+  Write-Host "platform failed to start; service output follows:" -ForegroundColor Red
+  $platformJob = Get-Job -Name "platform" -ErrorAction SilentlyContinue
+  Show-JobOutput $platformJob
   Stop-All $null; exit 1
 }
 
 Write-Host "==> Web on :3000"
-$web = Start-Process -FilePath "pnpm" -ArgumentList "run", "web:dev" -PassThru -WindowStyle Normal
+$web = Start-Process -FilePath $env:ComSpec -ArgumentList "/d /c pnpm run web:dev" -WorkingDirectory $ROOT -PassThru -WindowStyle Normal
 
 Write-Host ""
 Write-Host "ALL UP: web http://localhost:3000  api http://localhost:8000" -ForegroundColor Green
