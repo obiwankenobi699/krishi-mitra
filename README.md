@@ -29,23 +29,124 @@ with Supabase cloud for data.
 - **Data:** Supabase (Postgres + Auth + Storage, RLS on everything)
 - **Tooling:** mise (pinned Node/pnpm/Python/uv), pnpm, uv, Ollama native
 
-## Start locally (native, no Docker)
+## Quick start
 
-```bash
-cp .env.example .env   # fill Supabase URL + keys (see Supabase setup)
-pnpm install
-pnpm run setup         # bootstraps mise, installs everything, smoke-tests boot
-pnpm run dev           # web :3000, gateway :8000, AI :8001-8003
-pnpm run health        # 16 checks — everything green?
+Krishi Mitra runs natively; Docker and WSL are not required. The setup scripts
+install the pinned Node.js, pnpm, Python, and uv toolchain through mise, install
+project dependencies, prepare local state, download the Vosk speech model, and
+smoke-check services. Install the system tools listed for your operating system
+before running setup.
+
+### Windows 10/11 (PowerShell)
+
+Run these commands from the repository root in PowerShell or Windows Terminal.
+The Windows scripts are native PowerShell; Git Bash is not needed for the main
+app.
+
+1. Create and edit the local environment file:
+
+   ```powershell
+   Copy-Item .env.example .env
+   notepad .env
+   ```
+
+   Fill in the required Supabase values and application secrets. Telegram values
+   are optional unless you want the bot; never commit `.env`.
+
+2. Install system tools. Ollama, Tesseract OCR, and FFmpeg can be installed with
+   `winget`:
+
+   ```powershell
+   winget install --id Ollama.Ollama -e
+   winget install --id UB-Mannheim.TesseractOCR -e
+   winget install --id Gyan.FFmpeg -e
+   ```
+
+   Install Poppler separately and add the folder containing `pdftoppm.exe` to
+   `PATH` (for example, `choco install poppler -y` if Chocolatey is installed).
+   Restart PowerShell after installing tools so the updated `PATH` is loaded.
+
+3. Run setup. This direct command lets the script bootstrap mise before pnpm is
+   available:
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1
+   ```
+
+   If mise was just installed, open a fresh PowerShell window if setup asks you
+   to refresh the shell. Then start the full stack:
+
+   ```powershell
+   pnpm run dev:windows
+   ```
+
+   Open <http://localhost:3000>. The gateway is on `:8000`; the AI services are
+   on `:8001`–`:8003`. Press **Ctrl+C** in the launcher terminal to stop the
+   stack. To run only the web app, use `pnpm run web:dev`.
+
+Useful Windows checks and recovery commands:
+
+```powershell
+pnpm run doctor:windows
+pnpm run restart:windows
+pnpm run tg:poll:windows
 ```
 
-Windows PowerShell twins: `setup:windows`, `dev:windows`, `restart:windows`,
-`doctor:windows`, `tg:poll:windows`. Recovery: `pnpm run restart`,
-audit anytime: `pnpm run doctor`. Telegram polling (no tunnel):
-`pnpm run tg:poll`. Full bot setup: `bash scripts/setup-telegram.sh <url>`.
+`tg:poll:windows` runs the Telegram worker in the foreground; keep it running
+in a second PowerShell window while the main stack is up.
 
-GPU tiers are automatic: 4GB cards run YOLO on CPU + sequential LLM
-(efficient); 6GB+ unlocks YOLO on CUDA + parallel LLM (performance).
+### Linux (Ubuntu/Debian, Bash)
+
+From the repository root, install the system packages and Ollama first:
+
+```bash
+sudo apt update
+sudo apt install -y git curl unzip build-essential tesseract-ocr poppler-utils ffmpeg
+curl -fsSL https://ollama.com/install.sh | sh
+```
+
+Create and edit `.env`, then run the native setup script. It bootstraps mise if
+needed, installs the pinned toolchain and dependencies, prepares local state,
+and checks service startup:
+
+```bash
+cp .env.example .env
+nano .env
+bash scripts/setup.sh
+```
+
+Start the full stack and open <http://localhost:3000>:
+
+```bash
+pnpm run dev
+```
+
+The gateway is on `:8000`; the AI services are on `:8001`–`:8003`. Press
+**Ctrl+C** to stop. Run Telegram polling in a second terminal with
+`pnpm run tg:poll`.
+
+Useful Linux checks and recovery commands:
+
+```bash
+pnpm run doctor
+pnpm run restart
+pnpm run health
+```
+
+### GPU and model files
+
+The full AI stack currently requires an NVIDIA GPU visible to `nvidia-smi` and
+CUDA-enabled PyTorch. The launcher selects an efficient or performance tier
+based on available VRAM. Ollama must have the model named by `LOCAL_LLM_MODEL`
+in `.env`; check it with `ollama list`.
+
+Large model assets are not committed to Git. Setup downloads the Vosk speech
+model and the groundtruth service downloads/caches its MiniLM embedding model.
+The FieldScout YOLO detector needs
+`.local/models/yolo11-plant/plantvillage_yolo11x.onnx` and `labels.json`; stage
+those files by following [`services/fieldscout_ai/README.md`](services/fieldscout_ai/README.md).
+Without those weights, the web app can run while crop-image detection is
+unavailable or falls back. `.local/` is intentionally ignored by Git.
 
 ## Project layout
 
@@ -65,13 +166,19 @@ scripts/            setup/dev/restart/doctor/health + Telegram tooling
 knowledge_documents/     RAG source docs (10MB, committed for offline setup)
 ```
 
-## Environment
+## Environment configuration
 
-Copy `.env.example` to `.env`. Required: `SUPABASE_URL`,
-`SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SECRET_KEY`, `INTERNAL_API_KEY`,
-`SECRET_KEY`, plus `NEXT_PUBLIC_SUPABASE_*` twins. Optional until needed:
-`SUPABASE_DB_URL` (price training), `DATA_GOV_API_KEY` (free, mandi prices),
-`TELEGRAM_*` (bot). Never commit `.env`.
+Copy `.env.example` to `.env` and set the required values:
+
+- `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, and `SUPABASE_SECRET_KEY`
+- `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
+- `SECRET_KEY` and `INTERNAL_API_KEY` (use distinct, long random values)
+- `LOCAL_LLM_MODEL` to the Ollama model installed on your machine
+
+Optional values include `SUPABASE_DB_URL` (price-estimator training),
+`DATA_GOV_API_KEY` (mandi-price data), and the Telegram settings below. Keep
+service-role keys and all other secrets in `.env`; do not use them in
+`NEXT_PUBLIC_*` variables or commit `.env`.
 
 ## Supabase setup
 
@@ -82,11 +189,53 @@ Copy `.env.example` to `.env`. Required: `SUPABASE_URL`,
 3. Enable Google in Authentication → Providers; add `http://localhost:3000`
    as redirect URL.
 
-## Useful commands
+## Telegram bot
+
+Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, and
+`TELEGRAM_WEBHOOK_SECRET` in `.env`. Apply both Supabase migrations listed
+above. Keep the gateway running, then choose **one** update-delivery mode:
+
+- **Polling (recommended for local development):** no public URL or Cloudflare
+  tunnel is needed. Run `pnpm run tg:poll:windows` in a second PowerShell
+  window, or `pnpm run tg:poll` in a second Linux terminal. Keep that process
+  running while using the bot. Polling disables any existing webhook because
+  Telegram does not allow polling and webhook delivery at the same time.
+- **Webhook (public endpoint):** install `cloudflared`, then run
+  `cloudflared tunnel --url http://localhost:8000` in a separate terminal. Copy
+  the HTTPS `trycloudflare.com` URL it prints and, from a Bash shell with the
+  project dependencies available, run:
+  `bash scripts/setup-telegram.sh https://your-tunnel.trycloudflare.com`.
+  Keep the tunnel process running. If its temporary URL changes, run the setup
+  command again with the new URL. Do not run the polling worker in webhook mode.
+
+Cloudflare is only needed for webhook delivery from outside your machine. It is
+not part of `dev:windows` or `dev`, and it is not needed when using polling.
+The bot token is a credential; do not paste it into logs, issues, or screenshots.
+
+## Troubleshooting
+
+- **Missing `tesseract`, `ffmpeg`, or `pdftoppm`:** install the operating
+  system tools above, restart the terminal, then rerun setup.
+- **`.venv` or `node_modules` missing:** rerun the platform setup script.
+- **Ollama model unavailable:** run `ollama list`, then pull or create the model
+  named by `LOCAL_LLM_MODEL` in `.env`.
+- **Crop diagnosis has no local detections:** stage the YOLO files described in
+  the FieldScout README; the model weights are not included in Git.
+- **Telegram does not respond:** verify the three `TELEGRAM_*` values, confirm
+  the gateway health endpoint at <http://localhost:8000/health>, and keep the
+  selected polling worker or Cloudflare tunnel running.
+- **A port is already in use:** stop the existing project process before
+  starting another copy. On Windows, `pnpm run restart:windows` frees project
+  ports before relaunching.
+
+## Development commands
 
 ```bash
-pnpm run lint / typecheck / build   # frontend gates
-pnpm run test / python:check        # pytest + ruff
+pnpm run lint
+pnpm run typecheck
+pnpm run build
+pnpm run test
+pnpm run python:check
 ```
 
 ## License
